@@ -14,7 +14,11 @@ class ArucoDetector():
     aruco_params = cv2.aruco.DetectorParameters_create()
 
     frame_sub_topic = '/depthai_node/image/compressed'
-
+    # camera_matrix
+    mtx = np.array([[623.680552, 0, (720/2)], [0, 623.680552, (480/2)], [0, 0, 1]], dtype=np.float)
+    # distortion_coefficients
+    dist = np.array([[0, 0, 0, 0]], dtype=np.float)
+        
     def __init__(self):
         self.aruco_pub = rospy.Publisher(
             '/processed_aruco/image/compressed', CompressedImage, queue_size=10)
@@ -62,6 +66,9 @@ class ArucoDetector():
 
                 cv2.putText(frame, str(
                     marker_ID), (top_left[0], top_right[1] - 15), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 2)
+                # draw frames on arucos
+                rvec, tvec, markerPoints = cv2.aruco.estimatePoseSingleMarkers(marker_corner, 0.02, self.mtx, self.dist)
+                cv2.drawFrameAxes(frame, self.mtx, self.dist, rvec, tvec, 0.02)
 
         return frame
 
