@@ -3,7 +3,7 @@
 '''
 Run as:
 # check model path line ~30is
-rosrun depthai_publisher dai_publisher_yolov5_runner
+# rosrun depthai_publisher dai_publisher_yolov5_runner
 '''
 ############################### ############################### Libraries ###############################
 from pathlib import Path
@@ -19,6 +19,13 @@ import depthai as dai
 import rospy
 from sensor_msgs.msg import CompressedImage, Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
+from std_msgs.msg import String
+
+
+# Library to send PoseStamped to roi
+from geometry_msgs.msg import Point, PoseStamped
+from visualization_msgs.msg import Marker
+
 
 ############################### ############################### Parameters ###############################
 # Global variables to deal with pipeline creation
@@ -28,7 +35,7 @@ cam=None
 # sync outputs
 syncNN = True
 # model path
-modelsPath = "/home/cdrone/catkin_ws/src/depthai_publisher/src/depthai_publisher/models"
+modelsPath = "/home/uavteam6/egh450/ros_ws/src/depthai_publisher/src/depthai_publisher/models"
 # modelName = 'exp31Yolov5_ov21.4_6sh'
 modelName = 'best_openvino_2022.1_6shave'
 # confJson = 'exp31Yolov5.json'
@@ -80,6 +87,17 @@ class DepthaiCamera():
         self.pub_cam_inf = rospy.Publisher(self.pub_topic_cam_inf, CameraInfo, queue_size=10)
         # Create a timer for the callback
         self.timer = rospy.Timer(rospy.Duration(1.0 / 10), self.publish_camera_info, oneshot=False)
+
+        self.publish_label = rospy.Publisher('detection_of_object', String, queue_size=10)
+
+        #JAMES CODE ADDED:
+        #Create the target location publisher.
+        self.publish_roi_location = rospy.Publisher('target_detection/roi', PoseStamped, queue_size=10)
+        #Create the current position subsriber.
+        #The current UAV position is a Point variable [float64 x, float64 y, float64 z].
+        self.current_uav_position = None
+        self.sub_uav_position = rospy.Subscriber("current_position", Point, self.callback_uav_position)
+    
 
         rospy.loginfo("Publishing images to rostopic: {}".format(self.pub_topic))
 
@@ -247,10 +265,22 @@ class DepthaiCamera():
         # Both YoloDetectionNetwork and MobileNetDetectionNetwork output this message. This message contains a list of detections, which contains label, confidence, and the bounding box information (xmin, ymin, xmax, ymax).
         overlay =  frame.copy()
         for detection in detections:
+            label = detection.label
             bbox = self.frameNorm(overlay, (detection.xmin, detection.ymin, detection.xmax, detection.ymax))
             cv2.putText(overlay, labels[detection.label], (bbox[0] + 10, bbox[1] + 20), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
             cv2.putText(overlay, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
             cv2.rectangle(overlay, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
+
+            self.publish_label.publish(label)
+            
+            #TESTTING: If any target detected, send fake coordinate to ROI.
+            if label == 2 or label == 0:
+                rospy.loginfo("THIS IS A TEST")
+                ##CHANGE THESE COORDINATES TO BE THE TRANSFORMED COORDINATES.
+                self.send_coordinate_roi(3, 3, 1, label)
+            #rospy.loginfo(type(label))
+            rospy.loginfo(label)
+            rospy.sleep(2)
 
         return overlay
 
@@ -323,6 +353,97 @@ class DepthaiCamera():
 
     def shutdown(self):
         cv2.destroyAllWindows()
+
+
+
+
+
+    #TESTING: Send coordinate to ROI.
+    def send_coordinate_roi(self, x, y, z, label):
+        self.send_marker_roi(x, y, z, label)
+        rospy.loginfo("Imaging sending coordinate to ROI...")
+        pose = PoseStamped()
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+        pose.pose.orientation.w = 1.0
+        pose.pose.orientation.x = 0.0
+        pose.pose.orientation.y = 0.0
+        pose.pose.orientation.z = 0.0
+        self.publish_roi_location.publish(pose)        
+        rospy.loginfo("Imaging sent coordinate to ROI.")
+    
+    def callback_uav_position(self, msg_in):
+        self.current_uav_position = msg_in
+        rospy.loginfo("Imaging received the current UAV position.")
+        rospy.loginfo(msg_in.x)
+        rospy.loginfo(msg_in.y)
+        rospy.loginfo(msg_in.z)
+
+
+    def send_marker_roi(self, x, y, z, label):
+        rospy.loginfo("SENDING MARKER...")
+        pub = rospy.Publisher("tile_marker", Marker, queue_size=10, latch=True)
+
+        # Set up the message header
+        msg_out = Marker()
+        msg_out.header.frame_id = "map"
+        msg_out.header.stamp = rospy.Time.now()
+
+        # Namespace allows you to manage
+        # adding and modifying multiple markers
+        msg_out.ns = "my_marker"
+        # ID is the ID of this specific marker
+        msg_out.id = 0
+        # Type can be most primitive shapes
+        # and some custom ones (see rviz guide
+        # for more information)
+        msg_out.type = Marker.CUBE
+        if label == 0: #BACKPACK.
+            msg_out.color.r = 0
+            msg_out.color.g = 0
+            msg_out.color.b = 255
+
+        else:
+            msg_out.color.r = 255
+            msg_out.color.g = 0
+            msg_out.color.b = 0
+        # Action is to add / create a new marker
+        msg_out.action = Marker.ADD
+        # Lifetime set to Time(0) will make it
+        # last forever
+        msg_out.lifetime = rospy.Time(0)
+        # Frame Locked will ensure our marker
+        # moves around relative to the frame_id
+        # if this is applicable
+        msg_out.frame_locked = True
+
+        # Place the marker at [1.0,1.0,0.0]
+        # with no rotation
+        msg_out.pose.position.x = x
+        msg_out.pose.position.y = y
+        msg_out.pose.position.z = z
+        msg_out.pose.orientation.w = 1.0
+        msg_out.pose.orientation.x = 0.0
+        msg_out.pose.orientation.y = 0.0
+        msg_out.pose.orientation.z = 0.0
+
+        # Make a square tile marker with
+        # size 0.1x0.1m square and 0.02m high
+        msg_out.scale.x = 0.1
+        msg_out.scale.y = 0.1
+        msg_out.scale.z = 0.02
+
+        # Make the tile a nice opaque blue
+        msg_out.color.r = 0.0
+        msg_out.color.g = 0.2
+        msg_out.color.b = 0.8
+        msg_out.color.a = 1.0
+
+        # Publish the marker
+        pub.publish(msg_out)
+        rospy.loginfo("MARKER SENT SUCCESSFULLY.")
+
 
 
 #### Main code that creates a depthaiCamera class and run it.
