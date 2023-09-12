@@ -277,7 +277,8 @@ class DepthaiCamera():
             if label == 2 or label == 0:
                 rospy.loginfo("THIS IS A TEST")
                 ##CHANGE THESE COORDINATES TO BE THE TRANSFORMED COORDINATES.
-                self.send_coordinate_roi(3, 3, 1, label)
+                #RIGHT NOW IT JUST SENDS THE CURRENT COORDINATE.
+                self.send_coordinate_roi(self.current_uav_position.x, self.current_uav_position.y, self.current_uav_position.z, label)
             #rospy.loginfo(type(label))
             rospy.loginfo(label)
             rospy.sleep(2)
@@ -365,7 +366,7 @@ class DepthaiCamera():
         pose = PoseStamped()
         pose.pose.position.x = x
         pose.pose.position.y = y
-        pose.pose.position.z = z
+        pose.pose.position.z = label
         pose.pose.orientation.w = 1.0
         pose.pose.orientation.x = 0.0
         pose.pose.orientation.y = 0.0
@@ -375,10 +376,6 @@ class DepthaiCamera():
     
     def callback_uav_position(self, msg_in):
         self.current_uav_position = msg_in
-        rospy.loginfo("Imaging received the current UAV position.")
-        rospy.loginfo(msg_in.x)
-        rospy.loginfo(msg_in.y)
-        rospy.loginfo(msg_in.z)
 
 
     def send_marker_roi(self, x, y, z, label):
@@ -422,7 +419,7 @@ class DepthaiCamera():
         # with no rotation
         msg_out.pose.position.x = x
         msg_out.pose.position.y = y
-        msg_out.pose.position.z = z
+        msg_out.pose.position.z = 0.0
         msg_out.pose.orientation.w = 1.0
         msg_out.pose.orientation.x = 0.0
         msg_out.pose.orientation.y = 0.0

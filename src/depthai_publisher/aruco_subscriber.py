@@ -8,16 +8,43 @@ from cv_bridge import CvBridge, CvBridgeError
 
 import numpy as np
 
+from geometry_msgs.msg import Point, PoseStamped
 
 class ArucoDetector():
     aruco_dict = cv2.aruco.Dictionary_get(cv2.aruco.DICT_5X5_100)
     aruco_params = cv2.aruco.DetectorParameters_create()
+    
+    
+
 
     frame_sub_topic = '/depthai_node/image/compressed'
 
     def __init__(self):
+
+    
+        #Get input for ArUco landing ID.
+        while True:
+            try:
+                self.landing_id = int(input("Enter ArUco Landing ID: "))
+                break  # Exit the loop if the input is a valid integer
+            except ValueError:
+                print("Invalid input. Please enter an integer.")
+        rospy.loginfo("Searching for ID " + str(self.landing_id))
+
+        self.detected_marker = False
+
+        #ID publisher.
+        self.id_coordinate_publisher = rospy.Publisher("landing_id_coordinate", Point, queue_size=10)
+
+        #Current position subscriber.
+        self.current_uav_position = None
+        self.sub_uav_position = rospy.Subscriber("current_position", Point, self.callback_uav_position)
+
+
         self.aruco_pub = rospy.Publisher(
             '/processed_aruco/image/compressed', CompressedImage, queue_size=10)
+
+        
 
         self.br = CvBridge()
 
@@ -58,7 +85,15 @@ class ArucoDetector():
                 cv2.line(frame, bottom_right, bottom_left, (0, 255, 0), 2)
                 cv2.line(frame, bottom_left, top_left, (0, 255, 0), 2)
 
-                rospy.loginfo("Aruco detected, ID: {}".format(marker_ID))
+                #rospy.loginfo("Aruco detected, ID: {}".format(marker_ID))
+
+                #Determine if its the landing id. 
+                if(marker_ID == self.landing_id) and not self.detected_marker and (self.current_uav_position is not None):
+                    rospy.loginfo("Correct Marker Detected")
+                    rospy.loginfo("Aruco detected, ID: {}".format(marker_ID))
+                    #NEED TO ADD FRAME TRANSFORMATION. RIGHT NOW IT JUST USES CURRENT UAV POSITION.
+                    self.id_coordinate_publisher.publish(self.current_uav_position)
+                    self.detected_marker = True
 
                 cv2.putText(frame, str(
                     marker_ID), (top_left[0], top_right[1] - 15), cv2.FONT_HERSHEY_COMPLEX, 0.5, (0, 255, 0), 2)
@@ -72,6 +107,10 @@ class ArucoDetector():
         msg_out.data = np.array(cv2.imencode('.jpg', frame)[1]).tostring()
 
         self.aruco_pub.publish(msg_out)
+
+    def callback_uav_position(self, msg_in):
+        self.current_uav_position = msg_in
+
 
 
 def main():
