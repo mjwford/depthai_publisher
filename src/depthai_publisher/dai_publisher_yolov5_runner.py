@@ -17,6 +17,9 @@ import cv2
 import numpy as np
 import depthai as dai
 import rospy
+
+import math
+
 from sensor_msgs.msg import CompressedImage, Image, CameraInfo
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import String
@@ -25,6 +28,8 @@ from std_msgs.msg import String
 # Library to send PoseStamped to roi
 from geometry_msgs.msg import Point, PoseStamped
 from visualization_msgs.msg import Marker
+
+
 
 
 ############################### ############################### Parameters ###############################
@@ -37,9 +42,17 @@ syncNN = True
 # model path
 modelsPath = "/home/uavteam6/egh450/ros_ws/src/depthai_publisher/src/depthai_publisher/models"
 # modelName = 'exp31Yolov5_ov21.4_6sh'
-modelName = 'best_openvino_2022.1_6shave'
+
+#modelName = 'mattModel'
+#modelName = 'best_openvino_2022.1_6shave'
 # confJson = 'exp31Yolov5.json'
-confJson = 'best.json'
+#confJson = 'best.json'
+#modelName = 'ryanModel'
+#confJson = 'best.json'
+
+modelName = 'jamesModel'
+confJson = 'epoch24.json'
+
 
 ################################  Yolo Config File
 # parse config
@@ -72,12 +85,18 @@ class DepthaiCamera():
     pub_topic_detect = '/depthai_node/detection/compressed'
     pub_topic_cam_inf = '/depthai_node/camera/camera_info'
 
+   
+
     def __init__(self):
         self.pipeline = dai.Pipeline()
 
          # Input image size
         if "input_size" in nnConfig:
             self.nn_shape_w, self.nn_shape_h = tuple(map(int, nnConfig.get("input_size").split('x')))
+
+         #Detection stuff.
+        self.bag_detected = False
+        self.person_detected = False
 
         # Pulbish ros image data
         self.pub_image = rospy.Publisher(self.pub_topic, CompressedImage, queue_size=10)
@@ -271,14 +290,33 @@ class DepthaiCamera():
             cv2.putText(overlay, f"{int(detection.confidence * 100)}%", (bbox[0] + 10, bbox[1] + 40), cv2.FONT_HERSHEY_TRIPLEX, 0.5, 255)
             cv2.rectangle(overlay, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 2)
 
-            self.publish_label.publish(label)
-            
-            #TESTTING: If any target detected, send fake coordinate to ROI.
-            if label == 2 or label == 0:
-                rospy.loginfo("THIS IS A TEST")
-                ##CHANGE THESE COORDINATES TO BE THE TRANSFORMED COORDINATES.
-                #RIGHT NOW IT JUST SENDS THE CURRENT COORDINATE.
-                self.send_coordinate_roi(self.current_uav_position.x, self.current_uav_position.y, self.current_uav_position.z, label)
+            if self.current_uav_position is not None:
+
+                # Convert pixel coordinates to real-world coordinates (Added by Ryan)
+                x_pixel, y_pixel = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Assuming the center of the bounding box and the bottom pixel
+
+                real_world_coordinates = self.convert_to_real_world(x_pixel, y_pixel, self.current_uav_position.x, self.current_uav_position.y, self.current_uav_position.z) # comment out to ignore depth
+
+                self.publish_label.publish(str(label))
+                
+                #TESTTING: If any target detected, coordinate to ROI.
+                if (label == 1 or label == 0) and (self.current_uav_position is not None):
+
+
+                    rospy.loginfo("MAX STUFF")
+                    height, width, _ = frame.shape
+                    max_width = width-1
+                    max_height = height-1
+                    rospy.loginfo(max_width)
+                    rospy.loginfo(max_height)
+                
+
+                    rospy.loginfo("THIS IS A TEST")
+                    ##CHANGE THESE COORDINATES TO BE THE TRANSFORMED COORDINATES.
+                    #RIGHT NOW IT JUST SENDS THE CURRENT COORDINATE.
+                    #self.send_coordinate_roi(self.current_uav_position.x, self.current_uav_position.y, self.current_uav_position.z, label)
+                    # Sends out adjusted coordinates
+                    self.send_coordinate_roi(real_world_coordinates[0], real_world_coordinates[1], self.current_uav_position.z, label)
             #rospy.loginfo(type(label))
             rospy.loginfo(label)
             rospy.sleep(2)
@@ -316,7 +354,7 @@ class DepthaiCamera():
             cam.setInterleaved(False)
             cam.preview.link(detection_nn.input)
             cam.setColorOrder(dai.ColorCameraProperties.ColorOrder.BGR)
-            cam.setFps(40)
+            cam.setFps(10)
             print("Using RGB camera...")
         elif cam_source == 'left':
             cam = pipeline.create(dai.node.MonoCamera)
@@ -355,13 +393,94 @@ class DepthaiCamera():
     def shutdown(self):
         cv2.destroyAllWindows()
 
+    #Pixel coordinates to real world coordinates
+    def convert_to_real_world(self, x_pixel, y_pixel, x_data, y_data, z_data):
+        # Calculate Fx and Fy
+        #focal_length_x = (415 * 0.5) / (math.tan(69 * 0.5 * (math.pi/180)))
+        #focal_length_y = (415 * 0.5) / (math.tan(69 * 0.5 * (math.pi/180)))
+        #principal_point_x = 415 * 0.5
+        #principal_point_y = 415 * 0.5
+        
+        
+        # Assuming linear mapping between depth and real-world coordinates
+        #depth_value = depth_data[y_pixel, x_pixel]  # Get depth value at pixel coordinates
+        # Convert the raw depth value to real-world coordinates (in meters)
+        #depth_in_meters = (depth_value * 0.001)  # Convert mm to meters
+        # Perform conversion based on your camera's calibration parameters
+        # Replace the following line with your actual conversion formula
+        # x_real = depth_value * 0.001  # Convert mm to meters
+        # x_real = 
+        
+        #Field of view = 39.18 degrees.
+        image_length = math.tan(19.59 * (math.pi/180)) * z_data * 2
 
+        #centered_x_pixel = x_pixel - principal_point_x
+        #centered_y_pixel = y_pixel - principal_point_y
+
+        x_pixel_percentage = x_pixel / 415
+        y_pixel_percentage = y_pixel / 415
+
+        right_x_pixel = 1 - y_pixel_percentage 
+        right_y_pixel = x_pixel_percentage
+
+        ###WRONG:x_image_real = (image_length * right_x_pixel) - (image_length / 2)
+        ###WRONG:y_image_real = (image_length * right_y_pixel) - (image_length / 2)
+
+        x_image_real = (image_length - (image_length * right_y_pixel)) - (image_length/2)
+        y_image_real = (image_length - (image_length * right_x_pixel)) - (image_length/2)
+
+
+        x_real = x_image_real + x_data
+        y_real = y_image_real + y_data
+   
+        #return x_real, y_real, z_real
+        # rospy.loginfo("TESTING STUFF")
+        # rospy.loginfo(x_data)
+        # rospy.loginfo(y_data)
+        # rospy.loginfo("     ")
+        # rospy.loginfo(x_real)
+        # rospy.loginfo(y_real)
+        # rospy.loginfo("     ")
+        # rospy.loginfo(x_pixel)
+        # rospy.loginfo(y_pixel)
+        # rospy.loginfo("     ")
+        # rospy.loginfo(x_pixel_percentage)
+        # rospy.loginfo(y_pixel_percentage)
+        # rospy.loginfo("     ")
+        # rospy.loginfo(image_length)
+        # rospy.loginfo("     ")
+        # rospy.loginfo(x_image_real)
+
+
+       
+
+        rospy.loginfo("Pixel Percentages")
+        rospy.loginfo(right_x_pixel)
+        rospy.loginfo(right_y_pixel)
+        rospy.loginfo(" ")
+
+        
+
+        #rospy.loginfo("UAV Position")
+        #rospy.loginfo(x_data)
+        #rospy.loginfo(y_data)
+        #rospy.loginfo("Transformed Coordinate")
+        #rospy.loginfo(x_data_)
+
+
+
+        rospy.loginfo(y_image_real)
+        return x_real, y_real
 
 
 
     #TESTING: Send coordinate to ROI.
     def send_coordinate_roi(self, x, y, z, label):
-        self.send_marker_roi(x, y, z, label)
+        if((label == 0) and not self.bag_detected):
+            self.send_bag_marker_roi(x, y, z, label)
+        elif((label == 1) and not self.person_detected):    
+            self.send_person_marker_roi(x, y, z, label)
+            
         rospy.loginfo("Imaging sending coordinate to ROI...")
         pose = PoseStamped()
         pose.pose.position.x = x
@@ -378,68 +497,119 @@ class DepthaiCamera():
         self.current_uav_position = msg_in
 
 
-    def send_marker_roi(self, x, y, z, label):
-        rospy.loginfo("SENDING MARKER...")
-        pub = rospy.Publisher("tile_marker", Marker, queue_size=10, latch=True)
+    def send_bag_marker_roi(self, x, y, z, label):
+        rospy.loginfo("SENDING BAG MARKER...")
+        pub = rospy.Publisher("bag_tile_marker", Marker, queue_size=10, latch=True)
 
-        # Set up the message header
-        msg_out = Marker()
-        msg_out.header.frame_id = "map"
-        msg_out.header.stamp = rospy.Time.now()
 
-        # Namespace allows you to manage
-        # adding and modifying multiple markers
-        msg_out.ns = "my_marker"
-        # ID is the ID of this specific marker
-        msg_out.id = 0
-        # Type can be most primitive shapes
-        # and some custom ones (see rviz guide
-        # for more information)
-        msg_out.type = Marker.CUBE
-        if label == 0: #BACKPACK.
+        if((label == 0) and not self.bag_detected):
+
+            # Set up the message header
+            msg_out = Marker()
+            msg_out.header.frame_id = "map"
+            msg_out.header.stamp = rospy.Time.now()
+
+            # Namespace allows you to manage
+            # adding and modifying multiple markers
+            msg_out.ns = "my_bag_marker"
+            # ID is the ID of this specific marker
+            msg_out.id = 0
+            # Type can be most primitive shapes
+            # and some custom ones (see rviz guide
+            # for more information)
+            msg_out.type = Marker.CUBE
             msg_out.color.r = 0
             msg_out.color.g = 0
             msg_out.color.b = 255
+            msg_out.color.a = 1
+            self.bag_detected = True
+            # Action is to add / create a new marker
+            msg_out.action = Marker.ADD
+            # Lifetime set to Time(0) will make it
+            # last forever
+            msg_out.lifetime = rospy.Time(0)
+            # Frame Locked will ensure our marker
+            # moves around relative to the frame_id
+            # if this is applicable
+            msg_out.frame_locked = True
 
-        else:
-            msg_out.color.r = 255
-            msg_out.color.g = 0
+            # Place the marker at [1.0,1.0,0.0]
+            # with no rotation
+            msg_out.pose.position.x = x
+            msg_out.pose.position.y = y
+            msg_out.pose.position.z = 0.0
+            msg_out.pose.orientation.w = 1.0
+            msg_out.pose.orientation.x = 0.0
+            msg_out.pose.orientation.y = 0.0
+            msg_out.pose.orientation.z = 0.0
+
+            # Make a square tile marker with
+            # size 0.1x0.1m square and 0.02m high
+            msg_out.scale.x = 0.1
+            msg_out.scale.y = 0.1
+            msg_out.scale.z = 0.02
+
+
+            # Publish the marker
+            pub.publish(msg_out)
+            rospy.loginfo("BAG MARKER SENT SUCCESSFULLY.")
+            
+    def send_person_marker_roi(self, x, y, z, label):
+        rospy.loginfo("SENDING PERSON MARKER...")
+        pub = rospy.Publisher("person_tile_marker", Marker, queue_size=10, latch=True)
+
+
+        if((label == 1) and not self.person_detected):
+
+            # Set up the message header
+            msg_out = Marker()
+            msg_out.header.frame_id = "map"
+            msg_out.header.stamp = rospy.Time.now()
+
+            # Namespace allows you to manage
+            # adding and modifying multiple markers
+            msg_out.ns = "my_person_marker"
+            # ID is the ID of this specific marker
+            msg_out.id = 0
+            # Type can be most primitive shapes
+            # and some custom ones (see rviz guide
+            # for more information)
+            msg_out.type = Marker.CUBE
+            msg_out.color.r = 0
+            msg_out.color.g = 255
             msg_out.color.b = 0
-        # Action is to add / create a new marker
-        msg_out.action = Marker.ADD
-        # Lifetime set to Time(0) will make it
-        # last forever
-        msg_out.lifetime = rospy.Time(0)
-        # Frame Locked will ensure our marker
-        # moves around relative to the frame_id
-        # if this is applicable
-        msg_out.frame_locked = True
+            msg_out.color.a = 1
+            self.person_detected = True
+            # Action is to add / create a new marker
+            msg_out.action = Marker.ADD
+            # Lifetime set to Time(0) will make it
+            # last forever
+            msg_out.lifetime = rospy.Time(0)
+            # Frame Locked will ensure our marker
+            # moves around relative to the frame_id
+            # if this is applicable
+            msg_out.frame_locked = True
 
-        # Place the marker at [1.0,1.0,0.0]
-        # with no rotation
-        msg_out.pose.position.x = x
-        msg_out.pose.position.y = y
-        msg_out.pose.position.z = 0.0
-        msg_out.pose.orientation.w = 1.0
-        msg_out.pose.orientation.x = 0.0
-        msg_out.pose.orientation.y = 0.0
-        msg_out.pose.orientation.z = 0.0
+            # Place the marker at [1.0,1.0,0.0]
+            # with no rotation
+            msg_out.pose.position.x = x
+            msg_out.pose.position.y = y
+            msg_out.pose.position.z = 0.0
+            msg_out.pose.orientation.w = 1.0
+            msg_out.pose.orientation.x = 0.0
+            msg_out.pose.orientation.y = 0.0
+            msg_out.pose.orientation.z = 0.0
 
-        # Make a square tile marker with
-        # size 0.1x0.1m square and 0.02m high
-        msg_out.scale.x = 0.1
-        msg_out.scale.y = 0.1
-        msg_out.scale.z = 0.02
+            # Make a square tile marker with
+            # size 0.1x0.1m square and 0.02m high
+            msg_out.scale.x = 0.1
+            msg_out.scale.y = 0.1
+            msg_out.scale.z = 0.02
 
-        # Make the tile a nice opaque blue
-        msg_out.color.r = 0.0
-        msg_out.color.g = 0.2
-        msg_out.color.b = 0.8
-        msg_out.color.a = 1.0
-
-        # Publish the marker
-        pub.publish(msg_out)
-        rospy.loginfo("MARKER SENT SUCCESSFULLY.")
+            # Publish the marker
+            pub.publish(msg_out)
+            rospy.loginfo("PERSON MARKER SENT SUCCESSFULLY.")       
+            
 
 
 
