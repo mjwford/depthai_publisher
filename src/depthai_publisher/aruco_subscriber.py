@@ -108,11 +108,8 @@ class ArucoDetector():
                     #if not self.detected_marker and (self.current_uav_position is not None):
                     rospy.loginfo("Correct Marker Detected")
 
-
-
-                    
-                   
-                    
+                if(marker_ID == self.landing_id) and (self.current_uav_position is not None):
+   
                     real_world_coordinates = self.convert_to_real_world(x_pixel, y_pixel, self.current_uav_position.x, self.current_uav_position.y, self.current_uav_position.z)
                     self.send_marker_aruco(real_world_coordinates[0], real_world_coordinates[1])
                     self.send_coordinate_roi(real_world_coordinates[0], real_world_coordinates[1], self.current_uav_position.z)

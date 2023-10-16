@@ -50,8 +50,11 @@ modelsPath = "/home/uavteam6/egh450/ros_ws/src/depthai_publisher/src/depthai_pub
 #modelName = 'ryanModel'
 #confJson = 'best.json'
 
-modelName = 'jamesModel'
-confJson = 'epoch24.json'
+#modelName = 'jamesModel'
+#confJson = 'epoch24.json'
+
+modelName = 'bestsofar'
+confJson = 'bestsofar.json'
 
 
 ################################  Yolo Config File
